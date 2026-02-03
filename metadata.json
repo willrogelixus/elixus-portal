@@ -1,0 +1,8 @@
+{
+  "name": "Elixus Client Portal",
+  "description": "A premium, futuristic AI automation agency onboarding portal featuring HUD-style aesthetics, secure A2P registration forms, and immersive cinematic entry.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
