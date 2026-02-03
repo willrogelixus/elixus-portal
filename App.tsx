@@ -534,7 +534,7 @@ const DashboardPage: React.FC<{ isA2pComplete: boolean; onStartA2p: () => void; 
               </h3>
             </div>
             <div className="p-6 space-y-6 max-h-[350px] overflow-y-auto custom-scrollbar">
-              {activities.length > 0 ? activities.map((item) => (
+              {activities.filter(a => a.action !== 'sign_in').length > 0 ? activities.filter(a => a.action !== 'sign_in').map((item) => (
                 <div key={item.id} className="flex gap-4 items-start border-l-2 border-[#1597aa]/20 pl-4 py-1 hover:border-[#1597aa] transition-colors group">
                   <div className="flex-1">
                     <p className="text-sm text-white/80 group-hover:text-white transition-colors">{item.details || item.action.replace(/_/g, ' ')}</p>
@@ -568,9 +568,22 @@ const DashboardPage: React.FC<{ isA2pComplete: boolean; onStartA2p: () => void; 
                       default: return { label: 'Pending', color: 'bg-white/20' };
                     }
                   };
+                  const a2pStatus = userData?.a2pSubmission?.status;
+                  const a2pDisplay = (() => {
+                    if (!a2pStatus) return { label: 'Pending', color: 'bg-white/20' };
+                    switch (a2pStatus) {
+                      case 'approved': return { label: 'Verified', color: 'bg-green-500' };
+                      case 'rejected': return { label: 'Rejected', color: 'bg-red-500' };
+                      case 'submitted': return { label: 'Submitted', color: 'bg-amber-500 animate-pulse' };
+                      case 'under_review': return { label: 'Under Review', color: 'bg-amber-500 animate-pulse' };
+                      case 'processing': return { label: 'Processing', color: 'bg-amber-500 animate-pulse' };
+                      case 'action_required': return { label: 'Action Required', color: 'bg-amber-500' };
+                      default: return { label: 'Pending', color: 'bg-white/20' };
+                    }
+                  })();
                   return [
                     { name: "CRM Integration", ...statusDisplay(ss?.crm_integration) },
-                    { name: "SMS Registration", ...statusDisplay(ss?.sms_registration) },
+                    { name: "A2P Verification", ...a2pDisplay },
                     { name: "Workflow Core", ...statusDisplay(ss?.workflow_automation) },
                     { name: "Calendar Sync", ...statusDisplay(ss?.calendar_sync) },
                   ];
@@ -660,7 +673,7 @@ const OnboardingPage: React.FC<{ onBack: () => void; onSubmit: () => void; userI
     // Advance implementation phase to System Integration
     await supabase
       .from('portal_system_status')
-      .update({ current_phase: 3, sms_registration: 'in_progress' } as unknown as Record<string, unknown>)
+      .update({ current_phase: 3 } as unknown as Record<string, unknown>)
       .eq('client_id', userId);
 
     onSubmit();
