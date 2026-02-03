@@ -33,7 +33,7 @@ import {
   LogOut,
   AlertCircle
 } from 'lucide-react';
-import { signIn, signUp, signOut, getSession, getPortalUserData, logActivity, onAuthStateChange, resetPassword, updatePassword, ensurePortalClient } from './lib/auth';
+import { signIn, signUp, signOut, getSession, getPortalUserData, logActivity, getActivityHistory, onAuthStateChange, resetPassword, updatePassword, ensurePortalClient } from './lib/auth';
 import type { PortalUserData } from './lib/auth';
 import { supabase } from './lib/supabase';
 import type { PortalA2PSubmissionInsert } from './lib/database.types';
@@ -61,6 +61,24 @@ const COUNTRIES = [
   "Thailand", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", 
   "United Arab Emirates", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
 ];
+
+// --- Helpers ---
+
+const formatRelativeTime = (dateStr: string): string => {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
 
 // --- Sub-components for Dashboard ---
 
@@ -405,9 +423,22 @@ const ResetPasswordPage: React.FC<{ onComplete: () => void }> = ({ onComplete })
 };
 
 const DashboardPage: React.FC<{ isA2pComplete: boolean; onStartA2p: () => void; userData: PortalUserData | null; onSignOut: () => void }> = ({ isA2pComplete, onStartA2p, userData, onSignOut }) => {
-  const currentPhase = userData?.systemStatus?.current_phase ?? 1;
+  const [activities, setActivities] = useState<{ id: string; action: string; details: string | null; created_at: string }[]>([]);
+
+  // Derive effective phase from actual data to stay accurate even if DB is stale
+  let effectivePhase = userData?.systemStatus?.current_phase ?? 1;
+  if (userData?.client && effectivePhase < 2) effectivePhase = 2;
+  if (isA2pComplete && effectivePhase < 3) effectivePhase = 3;
+
+  const currentPhase = effectivePhase;
   const progressPercentage = Math.round((currentPhase / 5) * 100);
   const goLiveDate = userData?.systemStatus?.estimated_go_live;
+
+  useEffect(() => {
+    if (userData?.client?.id) {
+      getActivityHistory(userData.client.id, 10).then(setActivities);
+    }
+  }, [userData?.client?.id]);
 
   return (
     <HUDFrame>
@@ -455,26 +486,26 @@ const DashboardPage: React.FC<{ isA2pComplete: boolean; onStartA2p: () => void; 
             <RefreshCw size={12} className="text-white/20 cursor-pointer hover:text-[#1597aa] transition-colors" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatsCard icon={<Target size={28} />} value="47" label="Leads Captured" trend="+12% this month" />
-            <StatsCard icon={<MessageSquare size={28} />} value="23" label="Active Chats" trend="Currently open" />
-            <StatsCard icon={<Calendar size={28} />} value="18" label="Booked Calls" trend="8 pending" />
-            <StatsCard icon={<TrendingUp size={28} />} value="$24.5k" label="Pipeline Value" trend="+5.2k growth" />
+            <StatsCard icon={<Target size={28} />} value="—" label="Leads Captured" trend="Awaiting integration" />
+            <StatsCard icon={<MessageSquare size={28} />} value="—" label="Active Chats" trend="Awaiting integration" />
+            <StatsCard icon={<Calendar size={28} />} value="—" label="Booked Calls" trend="Awaiting integration" />
+            <StatsCard icon={<TrendingUp size={28} />} value="—" label="Pipeline Value" trend="Awaiting integration" />
           </div>
         </div>
 
         <Timeline currentPhase={currentPhase} goLiveDate={goLiveDate} />
 
-        {/* Pending Initializations */}
+        {/* Action Required / Completed Modules */}
         <div className="mb-10">
           <div className="flex items-center gap-4 mb-6">
-            <ShieldAlert size={16} className="text-[#1597aa]" />
-            <h2 className="text-xs font-futuristic text-[#1597aa] uppercase tracking-[0.3em]">Pending Initializations</h2>
+            {isA2pComplete ? <CheckCircle size={16} className="text-[#1597aa]" /> : <ShieldAlert size={16} className="text-[#1597aa]" />}
+            <h2 className="text-xs font-futuristic text-[#1597aa] uppercase tracking-[0.3em]">{isA2pComplete ? 'Completed Modules' : 'Action Required'}</h2>
             <div className="flex-1 h-[1px] bg-gradient-to-r from-[#1597aa]/30 to-transparent" />
           </div>
 
           <div
             onClick={onStartA2p}
-            className={`group relative glass-panel p-8 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 transition-all duration-500 cursor-pointer overflow-hidden border-white/5 hover:border-[#1597aa]/30 hover:bg-[#1597aa]/5 ${!isA2pComplete ? 'shadow-[0_0_40px_rgba(21,151,170,0.08)] border-[#1597aa]/20' : 'opacity-80'}`}
+            className={`group relative glass-panel p-8 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 transition-all duration-500 cursor-pointer overflow-hidden ${isA2pComplete ? 'border-[#1597aa]/10 hover:border-[#1597aa]/20' : 'border-[#1597aa]/20 shadow-[0_0_40px_rgba(21,151,170,0.08)] hover:border-[#1597aa]/30 hover:bg-[#1597aa]/5'}`}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#1597aa]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="flex gap-8 relative z-10">
@@ -483,11 +514,11 @@ const DashboardPage: React.FC<{ isA2pComplete: boolean; onStartA2p: () => void; 
               </div>
               <div className="space-y-1.5">
                 <h3 className="text-xl font-futuristic text-white group-hover:text-[#1597aa] transition-colors">A2P REGISTRATION</h3>
-                <p className="text-white/40 text-sm max-w-lg leading-relaxed">Complete compliance protocol for carrier integration.</p>
+                <p className="text-white/40 text-sm max-w-lg leading-relaxed">{isA2pComplete ? 'Compliance protocol submitted — under review by our team.' : 'Complete compliance protocol for carrier integration.'}</p>
               </div>
             </div>
-            <button className={`relative z-10 font-futuristic px-10 py-4 rounded-xl text-xs tracking-widest transition-all duration-300 border ${isA2pComplete ? 'bg-white/5 border-white/10 text-white/30' : 'bg-[#1597aa] border-transparent text-white shadow-[0_0_20px_rgba(21,151,170,0.2)] group-hover:scale-105'}`}>
-              {isA2pComplete ? 'VIEW MODULE' : 'START INTEGRATION'}
+            <button className={`relative z-10 font-futuristic px-10 py-4 rounded-xl text-xs tracking-widest transition-all duration-300 border ${isA2pComplete ? 'bg-[#1597aa]/10 border-[#1597aa]/20 text-[#1597aa]' : 'bg-[#1597aa] border-transparent text-white shadow-[0_0_20px_rgba(21,151,170,0.2)] group-hover:scale-105'}`}>
+              {isA2pComplete ? 'SUBMITTED' : 'START INTEGRATION'}
             </button>
           </div>
         </div>
@@ -503,20 +534,19 @@ const DashboardPage: React.FC<{ isA2pComplete: boolean; onStartA2p: () => void; 
               </h3>
             </div>
             <div className="p-6 space-y-6 max-h-[350px] overflow-y-auto custom-scrollbar">
-              {[
-                { event: "A2P Registration form submitted", time: "2 hours ago", status: "info" },
-                { event: "Account verified by compliance team", time: "Yesterday", status: "success" },
-                { event: "CRM Integration token generated", time: "Yesterday", status: "info" },
-                { event: "Welcome kit dispatched to agent email", time: "2 days ago", status: "info" }
-              ].map((item, i) => (
-                <div key={i} className="flex gap-4 items-start border-l-2 border-[#1597aa]/20 pl-4 py-1 hover:border-[#1597aa] transition-colors group">
+              {activities.length > 0 ? activities.map((item) => (
+                <div key={item.id} className="flex gap-4 items-start border-l-2 border-[#1597aa]/20 pl-4 py-1 hover:border-[#1597aa] transition-colors group">
                   <div className="flex-1">
-                    <p className="text-sm text-white/80 group-hover:text-white transition-colors">{item.event}</p>
-                    <p className="text-[10px] text-white/30 uppercase tracking-widest mt-1">{item.time}</p>
+                    <p className="text-sm text-white/80 group-hover:text-white transition-colors">{item.details || item.action.replace(/_/g, ' ')}</p>
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest mt-1">{formatRelativeTime(item.created_at)}</p>
                   </div>
                   <div className="w-2 h-2 rounded-full bg-[#1597aa]/50" />
                 </div>
-              ))}
+              )) : (
+                <div className="flex items-center justify-center h-24 text-white/20 text-sm font-futuristic">
+                  No activity yet
+                </div>
+              )}
             </div>
           </div>
 
@@ -562,15 +592,9 @@ const DashboardPage: React.FC<{ isA2pComplete: boolean; onStartA2p: () => void; 
                 <Calendar size={14} className="text-[#1597aa]" /> Appointments
               </h3>
               <div className="space-y-4">
-                {[
-                  { title: "Onboarding Call", date: "Tomorrow, 2:00 PM" },
-                  { title: "System Walkthrough", date: "Feb 10, 10:00 AM" }
-                ].map((apt, i) => (
-                  <div key={i} className="p-4 bg-white/5 rounded-lg border border-white/5 hover:border-[#1597aa]/30 transition-all cursor-pointer group">
-                    <p className="text-[11px] font-futuristic text-white group-hover:text-[#1597aa] transition-colors">{apt.title}</p>
-                    <p className="text-[10px] text-white/40 mt-1.5">{apt.date}</p>
-                  </div>
-                ))}
+                <div className="flex items-center justify-center h-16 text-white/20 text-[11px] font-futuristic">
+                  No upcoming appointments
+                </div>
               </div>
             </div>
           </div>
@@ -632,6 +656,13 @@ const OnboardingPage: React.FC<{ onBack: () => void; onSubmit: () => void; userI
     }
 
     await logActivity(userId, 'a2p_submitted', 'A2P registration form submitted');
+
+    // Advance implementation phase to System Integration
+    await supabase
+      .from('portal_system_status')
+      .update({ current_phase: 3, sms_registration: 'in_progress' } as unknown as Record<string, unknown>)
+      .eq('client_id', userId);
+
     onSubmit();
   };
   const SectionHeader: React.FC<{ id: number; title: string; icon: React.ReactNode }> = ({ id, title, icon }) => (
@@ -651,7 +682,6 @@ const OnboardingPage: React.FC<{ onBack: () => void; onSubmit: () => void; userI
       </div>
       <div className="mb-10 flex items-center gap-4">
         <div className="flex gap-2 flex-1">{[1, 2, 3, 4].map((step) => (<div key={step} className={`h-1 flex-1 rounded-full transition-colors duration-500 ${activeSections.includes(step) ? 'bg-[#1597aa] shadow-[0_0_10px_#1597aa]' : 'bg-white/10'}`} />))}</div>
-        <button type="button" onClick={() => { setFormData({ legalBusinessName: 'Acme Solutions LLC', streetAddress: '123 Innovation Drive', city: 'Austin', stateProvince: 'Texas', zipPostalCode: '73301', country: 'United States', businessPhone: '+1 (555) 123-4567', businessEmail: 'info@acmesolutions.com', businessWebsite: 'https://acmesolutions.com', firstName: 'John', lastName: 'Smith', directEmail: 'john.smith@acmesolutions.com', jobTitle: 'CEO', jobTitleOther: '', directPhone: '+1 (555) 987-6543', legalEntityType: 'LLC', legalEntityOther: '', businessIndustry: 'Technology', industryOther: '', taxIdEin: '12-3456789', privacyPolicyUrl: 'https://acmesolutions.com/privacy', termsConditionsUrl: 'https://acmesolutions.com/terms', optInFormUrl: 'https://acmesolutions.com/opt-in' }); setActiveSections([1, 2, 3, 4]); }} className="text-[9px] font-futuristic text-amber-400/60 hover:text-amber-400 border border-amber-400/20 hover:border-amber-400/50 px-3 py-1 rounded-full transition-all uppercase tracking-widest flex-shrink-0">Magic Fill</button>
       </div>
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="glass-panel rounded-2xl overflow-hidden border-white/10">
