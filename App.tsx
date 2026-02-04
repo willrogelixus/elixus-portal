@@ -31,7 +31,8 @@ import {
   Bell,
   Cpu,
   LogOut,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import { signIn, signUp, signOut, getSession, getPortalUserData, logActivity, getActivityHistory, onAuthStateChange, resetPassword, updatePassword, ensurePortalClient } from './lib/auth';
 import type { PortalUserData } from './lib/auth';
@@ -424,11 +425,26 @@ const ResetPasswordPage: React.FC<{ onComplete: () => void }> = ({ onComplete })
 
 const DashboardPage: React.FC<{ isA2pComplete: boolean; onStartA2p: () => void; userData: PortalUserData | null; onSignOut: () => void }> = ({ isA2pComplete, onStartA2p, userData, onSignOut }) => {
   const [activities, setActivities] = useState<{ id: string; action: string; details: string | null; created_at: string }[]>([]);
+  const [clearingActivity, setClearingActivity] = useState(false);
 
-  // Derive effective phase from actual data to stay accurate even if DB is stale
-  let effectivePhase = userData?.systemStatus?.current_phase ?? 1;
-  if (userData?.client && effectivePhase < 2) effectivePhase = 2;
-  if (isA2pComplete && effectivePhase < 3) effectivePhase = 3;
+  const handleClearActivity = async () => {
+    if (!userData?.client?.id) return;
+    if (!confirm('Clear all activity history?')) return;
+    setClearingActivity(true);
+    try {
+      await supabase
+        .from('portal_activity')
+        .delete()
+        .eq('client_id', userData.client.id);
+      setActivities([]);
+    } catch (err) {
+      console.error('Failed to clear activity:', err);
+    } finally {
+      setClearingActivity(false);
+    }
+  };
+
+  const effectivePhase = userData?.systemStatus?.current_phase ?? 1;
 
   const currentPhase = effectivePhase;
   const progressPercentage = Math.round((currentPhase / 5) * 100);
@@ -532,6 +548,20 @@ const DashboardPage: React.FC<{ isA2pComplete: boolean; onStartA2p: () => void; 
               <h3 className="text-xs font-futuristic text-white uppercase tracking-widest flex items-center gap-2">
                 <Bell size={14} className="text-[#1597aa]" /> Recent Activity
               </h3>
+              {activities.filter(a => a.action !== 'sign_in').length > 0 && (
+                <button
+                  onClick={handleClearActivity}
+                  disabled={clearingActivity}
+                  className="flex items-center gap-1.5 text-white/30 hover:text-red-400 transition-colors text-[10px] font-futuristic tracking-widest uppercase"
+                >
+                  {clearingActivity ? (
+                    <div className="w-3 h-3 border border-white/30 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Trash2 size={12} />
+                  )}
+                  Clear
+                </button>
+              )}
             </div>
             <div className="p-6 space-y-6 max-h-[350px] overflow-y-auto custom-scrollbar">
               {activities.filter(a => a.action !== 'sign_in').length > 0 ? activities.filter(a => a.action !== 'sign_in').map((item) => (
@@ -669,12 +699,6 @@ const OnboardingPage: React.FC<{ onBack: () => void; onSubmit: () => void; userI
     }
 
     await logActivity(userId, 'a2p_submitted', 'A2P registration form submitted');
-
-    // Advance implementation phase to System Integration
-    await supabase
-      .from('portal_system_status')
-      .update({ current_phase: 3 } as unknown as Record<string, unknown>)
-      .eq('client_id', userId);
 
     onSubmit();
   };
